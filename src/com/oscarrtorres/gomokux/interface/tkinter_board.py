@@ -1,61 +1,35 @@
+import time
 import tkinter as tk
 from scipy import spatial
 
 from src.com.oscarrtorres.gomokux.model.enums import *
+from src.com.oscarrtorres.gomokux.model.gomoku_board import GomokuBoard
 from src.com.oscarrtorres.gomokux.model.point import Point
 from src.com.oscarrtorres.gomokux.model.gomoku_state import GomokuState
 
 
 class TkinterApp:
 
-    # array_points will have 1 more value in each row and col since we can click on the edges
-    def generate_points(self):
-        self.points = [Point(x, y, x * self.cell_w + self.margin_x, y * self.cell_h + self.margin_y)
-                       for y in range(self.num_row_boxes + 1) for x in range(self.num_col_boxes + 1)]
-
-        # calculate neighbors
-        for index, point in enumerate(self.points):
-            point.set_index(index)
-            # get 5 to right
-            if point.x + 3 < self.num_col_boxes:
-                points = [self.points[index + x] for x in range(0, 5)]
-                [p_.add_point_list(points) for p_ in points]
-
-            # get 5 to the bottom
-            if point.y + 3 < self.num_row_boxes:
-                points = [self.points[index + (i * (self.num_col_boxes + 1))] for i in range(0, 5)]
-                [p_.add_point_list(points) for p_ in points]
-
-            # diagonal \
-            if point.x + 3 < self.num_col_boxes and point.y + 3 < self.num_row_boxes:
-                points = [self.points[index + (i * (self.num_col_boxes + 1)) + i] for i in range(0, 5)]
-                [p_.add_point_list(points) for p_ in points]
-
-            # diagonal /
-            if point.x + 3 < self.num_col_boxes and point.y - 3 > 0:
-                points = [self.points[index - x * self.num_col_boxes] for x in range(0, 5)]
-                [p_.add_point_list(points) for p_ in points]
-
     def draw_box(self, point):
-        x2 = point.lat_x + self.cell_w
-        y2 = point.lat_y + self.cell_h
+        x2 = point.lat_x + self.gomoku_board.cell_w
+        y2 = point.lat_y + self.gomoku_board.cell_h
         self.canvas.create_rectangle(point.lat_x, point.lat_y, x2, y2)
 
     def draw_grid(self):
-        for point in self.points:
-            if point.x < self.num_col_boxes and point.y < self.num_row_boxes:
+        for point in self.gomoku_board.points:
+            if point.x < self.gomoku_board.number_of_x_chips - 1 and point.y < self.gomoku_board.number_of_y_chips - 1:
                 # don't draw out of bounds boxes
                 self.draw_box(point)
 
     def closest_point(self, event) -> Point:
-        coordinates = [(c.lat_x, c.lat_y) for c in self.points]
+        coordinates = [(c.lat_x, c.lat_y) for c in self.gomoku_board.points]
         tree = spatial.KDTree(coordinates)
         res = tree.query([(event.x, event.y)])
 
         closest_dist = res[0][0]
         closest_index = res[1][0]
 
-        closest = self.points[closest_index]
+        closest = self.gomoku_board.points[closest_index]
 
         if closest.state != State.EMPTY:
             closest = None
@@ -66,7 +40,7 @@ class TkinterApp:
         x = point.lat_x - (self.chip_circle_radius / 2)  # center circle
         y = point.lat_y - (self.chip_circle_radius / 2)  # center circle
         self.canvas.create_oval(x, y, x + self.chip_circle_radius, y + self.chip_circle_radius,
-                                fill=self.gomoku.current_player.color, tags=f'playerchip playerchip_{point.index}')
+                                fill=self.gomoku_state.current_player.color, tags=f'playerchip playerchip_{point.index}')
 
     def enable_chip_numbers(self, event=None):
         self.disable_chip_numbers()
@@ -74,7 +48,7 @@ class TkinterApp:
         self.draw_chip_numbers()
 
     def draw_chip_numbers(self):
-        points = self.gomoku.all_points_stack
+        points = self.gomoku_state.all_points_stack
 
         for count, point in enumerate(points):
             if self.canvas.find_withtag(f'number_{point.index}'):
@@ -90,7 +64,8 @@ class TkinterApp:
 
     def place_chip(self, point: Point):
         self.draw_circle(point)
-        self.game_over, winning_moves, current_player = self.gomoku.take_turn(point)
+        print(f'Placed chip: {point}')
+        self.game_over, winning_moves, current_player = self.gomoku_state.take_turn(point)
 
         if self.chip_numbers_enabled:
             self.draw_chip_numbers()
@@ -112,8 +87,15 @@ class TkinterApp:
         else:
             self.place_chip(closest)
 
+            # self.restart()
+            # for points_ in closest.point_lists:
+            #     [self.draw_circle(p_) for p_ in points_]
+            #     self.canvas.update()
+            #     time.sleep(0.2)
+            #     self.restart()
+
     def undo_move(self, event=None):
-        last_move: Point = self.gomoku.get_last_move()
+        last_move: Point = self.gomoku_state.get_last_move()
         if not last_move:
             print('Can\'t undo move')
             return
@@ -124,10 +106,10 @@ class TkinterApp:
 
         self.canvas.delete(f'number_{last_move.index}')
         self.canvas.delete(f'playerchip_{last_move.index}')
-        self.gomoku.undo_move()
+        self.gomoku_state.undo_move()
 
     def redo_move(self, event=None):
-        last_move = self.gomoku.get_last_undone_move()
+        last_move = self.gomoku_state.get_last_undone_move()
         if not last_move:
             print('Can\'t redo move')
             return
@@ -135,42 +117,37 @@ class TkinterApp:
             self.place_chip(last_move)
 
     def restart(self, event=None):
-        [point.set_state(State.EMPTY) for point in self.points]
+        [point.set_state(State.EMPTY) for point in self.gomoku_board.points]
         self.canvas.delete("playerchip")
         self.canvas.delete("gameover")
         self.disable_chip_numbers()
-        self.gomoku.start_new()
+        self.gomoku_state.start_new()
         self.game_over = False
 
     def __init__(self, master=None):
         self.chip_numbers_enabled = False
         self.game_over = False
-        self.points = []
-        self.min_h = 900
-        self.min_w = 1200
-        self.num_col_boxes = 14
-        self.num_row_boxes = 14
+        min_h = 900
+        min_w = 1200
 
-        self.margin_x = 40
-        self.margin_y = 40
-        self.cell_w = self.min_w / self.num_col_boxes
-        self.cell_h = self.min_h / self.num_row_boxes
+        number_of_x_chips = 15
+        number_of_y_chips = 15
+        cell_w = min_w / (number_of_y_chips - 1)
+        cell_h = min_h / (number_of_x_chips - 1)
+
+        self.gomoku_board = GomokuBoard(number_of_x_chips=number_of_x_chips, number_of_y_chips=number_of_y_chips, cell_width=cell_w, box_height=cell_h, margin_x=40, margin_y = 40)
+        self.gomoku_state = GomokuState()
 
         self.chip_circle_radius = 40
 
-        if self.num_col_boxes < 5 or self.num_row_boxes < 5:
-            raise Exception("Minimum number of boxes is 5")
-        self.generate_points()
-        self.gomoku = GomokuState()
-
         # build ui
         self.topLevel = tk.Tk() if master is None else tk.Toplevel(master)
-        self.topLevel.configure(height=self.min_h, width=self.min_w)
-        right_frame = tk.Frame(self.topLevel, height=self.min_h)
+        self.topLevel.configure(height=min_h, width=min_w)
+        right_frame = tk.Frame(self.topLevel, height=min_h)
 
         self.canvas = tk.Canvas(right_frame)
-        self.canvas.configure(height=self.min_h + 2 * self.margin_y, state="normal",
-                              width=self.min_w + 2 * self.margin_x)
+        self.canvas.configure(height=min_h + 2 * self.gomoku_board.margin_y, state="normal",
+                              width=min_w + 2 * self.gomoku_board.margin_x)
 
         self.draw_grid()
         self.canvas.pack(expand="true", fill="both", side="top")

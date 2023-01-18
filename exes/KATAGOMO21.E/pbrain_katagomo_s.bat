@@ -1,0 +1,1 @@
+katago.exe gom -model model.bin.gz  -config gom_swap2.cfg

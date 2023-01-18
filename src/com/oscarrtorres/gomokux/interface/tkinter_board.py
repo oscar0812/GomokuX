@@ -1,9 +1,9 @@
-import time
 import tkinter as tk
 from scipy import spatial
 
-from constants import *
-from gomoku_state import GomokuState
+from src.com.oscarrtorres.gomokux.model.enums import *
+from src.com.oscarrtorres.gomokux.model.point import Point
+from src.com.oscarrtorres.gomokux.model.gomoku_state import GomokuState
 
 
 class TkinterApp:
@@ -15,6 +15,7 @@ class TkinterApp:
 
         # calculate neighbors
         for index, point in enumerate(self.points):
+            point.set_index(index)
             # get 5 to right
             if point.x + 3 < self.num_col_boxes:
                 points = [self.points[index + x] for x in range(0, 5)]
@@ -46,7 +47,7 @@ class TkinterApp:
                 # don't draw out of bounds boxes
                 self.draw_box(point)
 
-    def closest_coordinate(self, event) -> Point:
+    def closest_point(self, event) -> Point:
         coordinates = [(c.lat_x, c.lat_y) for c in self.points]
         tree = spatial.KDTree(coordinates)
         res = tree.query([(event.x, event.y)])
@@ -61,48 +62,88 @@ class TkinterApp:
 
         return closest
 
-    def draw_circle(self, coordinate):
-        x = coordinate.lat_x - (self.chip_circle_radius / 2)  # center circle
-        y = coordinate.lat_y - (self.chip_circle_radius / 2)  # center circle
+    def draw_circle(self, point):
+        x = point.lat_x - (self.chip_circle_radius / 2)  # center circle
+        y = point.lat_y - (self.chip_circle_radius / 2)  # center circle
         self.canvas.create_oval(x, y, x + self.chip_circle_radius, y + self.chip_circle_radius,
-                                fill=self.gomoku.current_player.color, tags="player_chip")
+                                fill=self.gomoku.current_player.color, tags=f'playerchip playerchip_{point.index}')
 
-    def draw_numbers(self, event=None):
-        self.clear_numbers()
-        for count, point in enumerate(self.gomoku.point_stack):
+    def enable_chip_numbers(self, event=None):
+        self.disable_chip_numbers()
+        self.chip_numbers_enabled = True
+        self.draw_chip_numbers()
+
+    def draw_chip_numbers(self):
+        points = self.gomoku.all_points_stack
+
+        for count, point in enumerate(points):
+            if self.canvas.find_withtag(f'number_{point.index}'):
+                continue  # already drew this chip number
+
             opposite_state = State.BLACK if point.state == State.WHITE else State.WHITE
-            self.canvas.create_text(point.lat_x, point.lat_y, text=str(count + 1), fill=opposite_state.name, font=('Helvetica 15 bold'), tags="numbers")
+            self.canvas.create_text(point.lat_x, point.lat_y, text=str(count + 1), fill=opposite_state.name,
+                                    font=('Helvetica 15 bold'), tags=f'numbers number_{point.index}')
 
-    def clear_numbers(self, event=None):
+    def disable_chip_numbers(self, event=None):
+        self.chip_numbers_enabled = False
         self.canvas.delete("numbers")
+
+    def place_chip(self, point: Point):
+        self.draw_circle(point)
+        self.game_over, winning_moves, current_player = self.gomoku.take_turn(point)
+
+        if self.chip_numbers_enabled:
+            self.draw_chip_numbers()
+
+        if self.game_over:
+            p1 = winning_moves[0]
+            p2 = winning_moves[-1]
+            self.canvas.create_line(p1.lat_x, p1.lat_y, p2.lat_x, p2.lat_y, fill="red", width=5, tags="gameover")
 
     # Determine the origin by clicking
     def canvas_click(self, event):
         if self.game_over:
             return
 
-        closest = self.closest_coordinate(event)
+        closest = self.closest_point(event)
         if closest is None:
             # print("Couldn't click")
             pass
         else:
-            self.draw_circle(closest)
-            self.game_over, winning_moves, current_player = self.gomoku.take_turn(closest)
+            self.place_chip(closest)
 
-            if self.game_over:
-                p1 = winning_moves[0]
-                p2 = winning_moves[-1]
-                self.canvas.create_line(p1.lat_x, p1.lat_y, p2.lat_x, p2.lat_y, fill="red", width=5, tags="gameover")
+    def undo_move(self, event=None):
+        last_move: Point = self.gomoku.get_last_move()
+        if not last_move:
+            print('Can\'t undo move')
+            return
+
+        if self.game_over:
+            self.game_over = False
+            self.canvas.delete("gameover")
+
+        self.canvas.delete(f'number_{last_move.index}')
+        self.canvas.delete(f'playerchip_{last_move.index}')
+        self.gomoku.undo_move()
+
+    def redo_move(self, event=None):
+        last_move = self.gomoku.get_last_undone_move()
+        if not last_move:
+            print('Can\'t redo move')
+            return
+        else:
+            self.place_chip(last_move)
 
     def restart(self, event=None):
         [point.set_state(State.EMPTY) for point in self.points]
-        self.canvas.delete("player_chip")
+        self.canvas.delete("playerchip")
         self.canvas.delete("gameover")
-        self.clear_numbers()
-        self.gomoku.clear()
+        self.disable_chip_numbers()
+        self.gomoku.start_new()
         self.game_over = False
 
     def __init__(self, master=None):
+        self.chip_numbers_enabled = False
         self.game_over = False
         self.points = []
         self.min_h = 900
@@ -149,8 +190,10 @@ class TkinterApp:
         self.canvas.bind("<Button 1>", self.canvas_click)
 
         self.mainwindow.bind('q', self.restart)
-        self.mainwindow.bind('1', self.draw_numbers)
-        self.mainwindow.bind('2', self.clear_numbers)
+        self.mainwindow.bind('1', self.enable_chip_numbers)
+        self.mainwindow.bind('2', self.disable_chip_numbers)
+        self.mainwindow.bind('u', self.undo_move)
+        self.mainwindow.bind('r', self.redo_move)
 
     def run(self):
         self.mainwindow.mainloop()

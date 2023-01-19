@@ -17,8 +17,8 @@ class Point:
     def set_index(self, index: int):
         self.index = index
 
-    def add_point_list(self, point_list):
-        self.point_lists.append(point_list)
+    def add_point_list(self, points_):
+        self.point_lists.append(points_)
 
     def __str__(self) -> str:
         return f'[index={self.index}, x={self.x}, y={self.y}, lat_x={self.lat_x}, lat_y={self.lat_y}, state={self.state}]'

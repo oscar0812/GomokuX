@@ -1,11 +1,11 @@
-import time
 import tkinter as tk
 from scipy import spatial
+from functools import partial
 
 from src.com.oscarrtorres.gomokux.model.enums import *
 from src.com.oscarrtorres.gomokux.model.gomoku_board import GomokuBoard
 from src.com.oscarrtorres.gomokux.model.point import Point
-from src.com.oscarrtorres.gomokux.model.gomoku_state import GomokuState
+from src.com.oscarrtorres.gomokux.pipe.gomocup import GomocupAIEnum
 
 
 class TkinterApp:
@@ -40,7 +40,7 @@ class TkinterApp:
         x = point.lat_x - (self.chip_circle_radius / 2)  # center circle
         y = point.lat_y - (self.chip_circle_radius / 2)  # center circle
         self.canvas.create_oval(x, y, x + self.chip_circle_radius, y + self.chip_circle_radius,
-                                fill=self.gomoku_state.current_player.color, tags=f'playerchip playerchip_{point.index}')
+                                fill=self.gomoku_board.current_player.color, tags=f'playerchip playerchip_{point.index}')
 
     def enable_chip_numbers(self, event=None):
         self.disable_chip_numbers()
@@ -48,7 +48,7 @@ class TkinterApp:
         self.draw_chip_numbers()
 
     def draw_chip_numbers(self):
-        points = self.gomoku_state.all_points_stack
+        points = self.gomoku_board.all_points_stack
 
         for count, point in enumerate(points):
             if self.canvas.find_withtag(f'number_{point.index}'):
@@ -65,7 +65,7 @@ class TkinterApp:
     def place_chip(self, point: Point):
         self.draw_circle(point)
         print(f'Placed chip: {point}')
-        self.game_over, winning_moves, current_player = self.gomoku_state.take_turn(point)
+        self.game_over, winning_moves, current_player = self.gomoku_board.take_turn(point)
 
         if self.chip_numbers_enabled:
             self.draw_chip_numbers()
@@ -86,6 +86,14 @@ class TkinterApp:
             pass
         else:
             self.place_chip(closest)
+            self.canvas.update()
+
+            if self.gomoku_board.has_ai_loaded():
+                res = self.gomoku_board.gomocup_ai.send_turn_command(point=closest)  # 2,3
+                numbers = [int(r) for r in res.split(",")]
+                print(f'BACK: {numbers}')
+                bot_point = self.gomoku_board.x_y_to_point(numbers[0], numbers[1])
+                self.place_chip(bot_point)
 
             # self.restart()
             # for points_ in closest.point_lists:
@@ -95,7 +103,7 @@ class TkinterApp:
             #     self.restart()
 
     def undo_move(self, event=None):
-        last_move: Point = self.gomoku_state.get_last_move()
+        last_move: Point = self.gomoku_board.get_last_move()
         if not last_move:
             print('Can\'t undo move')
             return
@@ -106,10 +114,10 @@ class TkinterApp:
 
         self.canvas.delete(f'number_{last_move.index}')
         self.canvas.delete(f'playerchip_{last_move.index}')
-        self.gomoku_state.undo_move()
+        self.gomoku_board.undo_move()
 
     def redo_move(self, event=None):
-        last_move = self.gomoku_state.get_last_undone_move()
+        last_move = self.gomoku_board.get_last_undone_move()
         if not last_move:
             print('Can\'t redo move')
             return
@@ -121,8 +129,30 @@ class TkinterApp:
         self.canvas.delete("playerchip")
         self.canvas.delete("gameover")
         self.disable_chip_numbers()
-        self.gomoku_state.start_new()
+
+        self.gomoku_board.restart()
         self.game_over = False
+
+    def set_gomocup_ai(self, gomocup_ai: GomocupAIEnum):
+        self.gomoku_board.set_gomocup_ai(gomocup_ai)
+        self.gomoku_board.gomocup_ai.send_start_command(self.gomoku_board.number_of_x_chips)
+
+    def set_up_menu(self):
+        menubar = tk.Menu(self.mainwindow)
+        self.mainwindow.config(menu=menubar)
+
+        file_menu = tk.Menu(menubar)
+
+        gomocup_sub_menu = tk.Menu(file_menu)
+        for gomocup_ai in GomocupAIEnum:
+            gomocup_sub_menu.add_command(label=gomocup_ai.value.name, command=partial(self.set_gomocup_ai, gomocup_ai))
+
+        file_menu.add_cascade(label="Gomocup AI", menu=gomocup_sub_menu, underline=0)
+
+        file_menu.add_separator()
+
+        file_menu.add_command(label="Exit", underline=0, command=quit)
+        menubar.add_cascade(label="File", underline=0, menu=file_menu)
 
     def __init__(self, master=None):
         self.chip_numbers_enabled = False
@@ -136,7 +166,6 @@ class TkinterApp:
         cell_h = min_h / (number_of_x_chips - 1)
 
         self.gomoku_board = GomokuBoard(number_of_x_chips=number_of_x_chips, number_of_y_chips=number_of_y_chips, cell_width=cell_w, box_height=cell_h, margin_x=40, margin_y = 40)
-        self.gomoku_state = GomokuState()
 
         self.chip_circle_radius = 40
 
@@ -171,6 +200,7 @@ class TkinterApp:
         self.mainwindow.bind('2', self.disable_chip_numbers)
         self.mainwindow.bind('u', self.undo_move)
         self.mainwindow.bind('r', self.redo_move)
+        self.set_up_menu()
 
     def run(self):
         self.mainwindow.mainloop()

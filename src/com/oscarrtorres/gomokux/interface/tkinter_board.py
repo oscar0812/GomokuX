@@ -1,11 +1,13 @@
 import tkinter as tk
+from tkinter import END
+
 from scipy import spatial
 from functools import partial
 
 from src.com.oscarrtorres.gomokux.model.enums import *
 from src.com.oscarrtorres.gomokux.model.gomoku_board import GomokuBoard
 from src.com.oscarrtorres.gomokux.model.point import Point
-from src.com.oscarrtorres.gomokux.pipe.gomocup import GomocupAIEnum
+from src.com.oscarrtorres.gomokux.pipe.gomocup import GomocupAIEnum, GomocupAIResponse
 
 
 class TkinterApp:
@@ -62,18 +64,24 @@ class TkinterApp:
         self.chip_numbers_enabled = False
         self.canvas.delete("numbers")
 
+    def append_to_textbox(self, str_):
+        self.text.insert(END, chars=str_)
+
     def place_chip(self, point: Point):
         self.draw_circle(point)
-        print(f'Placed chip: {point}')
+        # print(f'Placed chip: {point}')
         self.game_over, winning_moves, current_player = self.gomoku_board.take_turn(point)
 
         if self.chip_numbers_enabled:
             self.draw_chip_numbers()
 
+        self.append_to_textbox(f'Move {len(self.gomoku_board.all_points_stack)}) Player {point.state.value} placed chip at {point.x}, {point.y}\n')
+
         if self.game_over:
             p1 = winning_moves[0]
             p2 = winning_moves[-1]
             self.canvas.create_line(p1.lat_x, p1.lat_y, p2.lat_x, p2.lat_y, fill="red", width=5, tags="gameover")
+            self.append_to_textbox(f'Player {point.state.value} won!')
 
     # Determine the origin by clicking
     def canvas_click(self, event):
@@ -89,18 +97,13 @@ class TkinterApp:
             self.canvas.update()
 
             if self.gomoku_board.has_ai_loaded():
-                res = self.gomoku_board.gomocup_ai.send_turn_command(point=closest)  # 2,3
-                numbers = [int(r) for r in res.split(",")]
-                print(f'BACK: {numbers}')
-                bot_point = self.gomoku_board.x_y_to_point(numbers[0], numbers[1])
-                self.place_chip(bot_point)
-
-            # self.restart()
-            # for points_ in closest.point_lists:
-            #     [self.draw_circle(p_) for p_ in points_]
-            #     self.canvas.update()
-            #     time.sleep(0.2)
-            #     self.restart()
+                output_lines: list[GomocupAIResponse] = self.gomoku_board.gomocup_ai.send_turn_command(point=closest)
+                for res in output_lines:
+                    self.append_to_textbox(f'BOT) {res.response_str}\n')
+                    if res.is_x_y_point:
+                        x_y = res.x_y_points
+                        bot_point = self.gomoku_board.x_y_to_point(x_y[0], x_y[1])
+                        self.place_chip(bot_point)
 
     def undo_move(self, event=None):
         last_move: Point = self.gomoku_board.get_last_move()
@@ -133,8 +136,16 @@ class TkinterApp:
         self.gomoku_board.restart()
         self.game_over = False
 
+        # clear textbox
+        self.text.delete("1.0", END)
+
+        if self.gomoku_board.has_ai_loaded():
+            self.gomoku_board.gomocup_ai.send_start_command(self.gomoku_board.number_of_x_chips)
+            self.append_to_textbox(f'{ self.gomoku_board.gomocup_ai.name} Bot Selected!\n')
+
     def set_gomocup_ai(self, gomocup_ai: GomocupAIEnum):
         self.gomoku_board.set_gomocup_ai(gomocup_ai)
+        self.append_to_textbox(f'{gomocup_ai.value.name} Bot Selected!\n')
         self.gomoku_board.gomocup_ai.send_start_command(self.gomoku_board.number_of_x_chips)
 
     def set_up_menu(self):
@@ -142,17 +153,23 @@ class TkinterApp:
         self.mainwindow.config(menu=menubar)
 
         file_menu = tk.Menu(menubar)
-
-        gomocup_sub_menu = tk.Menu(file_menu)
-        for gomocup_ai in GomocupAIEnum:
-            gomocup_sub_menu.add_command(label=gomocup_ai.value.name, command=partial(self.set_gomocup_ai, gomocup_ai))
-
-        file_menu.add_cascade(label="Gomocup AI", menu=gomocup_sub_menu, underline=0)
-
-        file_menu.add_separator()
-
+        file_menu.add_command(label='Restart Game (q)', command=self.restart)
         file_menu.add_command(label="Exit", underline=0, command=quit)
+
+        gomocup_menu = tk.Menu(menubar)
+        for gomocup_ai in GomocupAIEnum:
+            gomocup_menu.add_command(label=gomocup_ai.value.name, command=partial(self.set_gomocup_ai, gomocup_ai))
+
+        shortcuts_menu = tk.Menu(menubar)
+
+        shortcuts_menu.add_command(label='Show Chip Numbers (1)', command=self.enable_chip_numbers)
+        shortcuts_menu.add_command(label='Hide Chip Numbers (2)', command=self.disable_chip_numbers)
+        shortcuts_menu.add_command(label='Undo Last Move (u)', command=self.undo_move)
+        shortcuts_menu.add_command(label='Redo Last Move (r)', command=self.redo_move)
+
         menubar.add_cascade(label="File", underline=0, menu=file_menu)
+        menubar.add_cascade(label="Gomocup AI", underline=0, menu=gomocup_menu)
+        menubar.add_cascade(label="Shortcuts", underline=0, menu=shortcuts_menu)
 
     def __init__(self, master=None):
         self.chip_numbers_enabled = False
@@ -184,7 +201,7 @@ class TkinterApp:
         right_frame.pack(expand="true", fill="both", side="right")
         left_frame = tk.Frame(self.topLevel)
         self.text = tk.Text(left_frame)
-        self.text.configure(height=55, padx=5, pady=5, width=50, wrap="word")
+        self.text.configure(height=55, padx=5, pady=5, width=50, wrap="word", font=('Helvetica 12'))
         self.text.pack(fill="y", side="top")
         left_frame.pack(side="left")
 

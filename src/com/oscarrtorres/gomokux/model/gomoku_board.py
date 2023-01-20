@@ -64,9 +64,7 @@ class GomokuBoard:
                 [p_.add_point_list(points) for p_ in points]
 
     def x_y_to_point(self, x: int, y: int):
-        p_ = self.points[y * self.number_of_x_chips + x]
-        print(p_)
-        return p_
+        return self.points[y * self.number_of_x_chips + x]
 
     def set_gomocup_ai(self, gomocup_ai: GomocupAIEnum):
         if self.has_ai_loaded():
